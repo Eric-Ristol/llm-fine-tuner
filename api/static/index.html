@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentiment Classifier</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 60px 20px;
+        }
+
+        .container {
+            max-width: 560px;
+            width: 100%;
+        }
+
+        h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 0.95rem;
+            margin-bottom: 28px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 12px 14px;
+            border: 2px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 56px;
+            transition: border-color 0.2s;
+            background: #fff;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+
+        button {
+            padding: 12px 22px;
+            background: #6366f1;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+            align-self: flex-end;
+        }
+
+        button:hover { background: #4f46e5; }
+        button:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+        /* Result card */
+        .result {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            display: none;
+        }
+
+        .result.visible { display: block; }
+
+        .label-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .label-badge {
+            font-size: 1.1rem;
+            font-weight: 700;
+            padding: 6px 16px;
+            border-radius: 8px;
+        }
+
+        .label-badge.POSITIVE { background: #d1fae5; color: #065f46; }
+        .label-badge.NEGATIVE { background: #fee2e2; color: #991b1b; }
+
+        .confidence {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .bar-container {
+            margin-top: 8px;
+        }
+
+        .bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+
+        .bar-track {
+            height: 10px;
+            background: #fee2e2;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: #6ee7b7;
+            border-radius: 5px;
+            transition: width 0.4s ease;
+        }
+
+        .reviewed-text {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid #f0f0f0;
+            color: #6b7280;
+            font-size: 0.88rem;
+            font-style: italic;
+        }
+
+        .error {
+            color: #dc2626;
+            font-weight: 600;
+            margin-top: 12px;
+            display: none;
+        }
+
+        .error.visible { display: block; }
+
+        .tech-note {
+            margin-top: 32px;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sentiment Classifier</h1>
+        <p class="subtitle">DistilBERT + LoRA &mdash; type a movie review and see the prediction.</p>
+
+        <div class="input-group">
+            <textarea id="textInput" placeholder="e.g. This movie was absolutely fantastic, I loved every minute of it!" rows="2"></textarea>
+            <button id="predictBtn" onclick="submitPrediction()">Classify</button>
+        </div>
+
+        <p class="error" id="errorMsg"></p>
+
+        <div class="result" id="resultCard">
+            <div class="label-row">
+                <span class="label-badge" id="labelBadge"></span>
+                <span class="confidence" id="confidenceText"></span>
+            </div>
+            <div class="bar-container">
+                <div class="bar-label">
+                    <span>Negative</span>
+                    <span>Positive</span>
+                </div>
+                <div class="bar-track">
+                    <div class="bar-fill" id="barFill" style="width: 50%"></div>
+                </div>
+            </div>
+            <p class="reviewed-text" id="reviewedText"></p>
+        </div>
+
+        <p class="tech-note">
+            Model: distilbert-base-uncased with LoRA adapter (rank 8) &bull;
+            Fine-tuned on synthetic movie reviews &bull;
+            <a href="/health" style="color:#9ca3af">API health</a>
+        </p>
+    </div>
+
+    <script>
+        var textInput = document.getElementById("textInput");
+        var predictBtn = document.getElementById("predictBtn");
+        var resultCard = document.getElementById("resultCard");
+        var labelBadge = document.getElementById("labelBadge");
+        var confidenceText = document.getElementById("confidenceText");
+        var barFill = document.getElementById("barFill");
+        var reviewedText = document.getElementById("reviewedText");
+        var errorMsg = document.getElementById("errorMsg");
+
+        //Submit on Enter (Shift+Enter for newline).
+        textInput.addEventListener("keydown", function(e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submitPrediction();
+            }
+        });
+
+        function submitPrediction() {
+            var text = textInput.value.trim();
+            if (!text) return;
+
+            predictBtn.disabled = true;
+            predictBtn.textContent = "...";
+            errorMsg.className = "error";
+
+            fetch("/predict", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({text: text}),
+            })
+            .then(function(res) {
+                if (!res.ok) throw new Error("Server returned " + res.status);
+                return res.json();
+            })
+            .then(function(data) {
+                labelBadge.textContent = data.label;
+                labelBadge.className = "label-badge " + data.label;
+                confidenceText.textContent = (data.confidence * 100).toFixed(1) + "% confidence";
+                barFill.style.width = (data.prob_positive * 100).toFixed(1) + "%";
+                reviewedText.textContent = '"' + data.text + '"';
+                resultCard.className = "result visible";
+            })
+            .catch(function(err) {
+                errorMsg.textContent = "Error: " + err.message;
+                errorMsg.className = "error visible";
+            })
+            .finally(function() {
+                predictBtn.disabled = false;
+                predictBtn.textContent = "Classify";
+            });
+        }
+    </script>
+</body>
+</html>

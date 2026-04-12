@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.vscode/
+.idea/
+
+#Project artefacts that can be regenerated.
+models/lora_adapter/
+models/comparison.csv
+models/classification_report.txt
+models/base_model_name.joblib
+plots/*.png
+data/*.csv
+push.log
